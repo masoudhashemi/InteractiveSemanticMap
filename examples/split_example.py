@@ -1,7 +1,7 @@
 from semantic_landscape import SemanticLandscape
 
 # Initialize the landscape with a smaller grid for clearer visualization
-landscape = SemanticLandscape(grid_size=(2, 2), use_hdbscan=True, min_cluster_size=4)
+landscape = SemanticLandscape(grid_size=(2, 2), use_hdbscan=True, min_cluster_size=3)
 
 # Create documents that naturally form clusters but with some ambiguity
 documents = [
@@ -54,9 +54,16 @@ for doc_id, doc in landscape.documents.items():
     elif any(term in doc.lower() for term in ["neural", "deep learning", "supervised"]):
         ml_docs.append(doc_id)
 
+# Find ML cluster position (using position of first ML document)
+ml_cluster_pos = None
+for doc_id in ml_docs:
+    ml_cluster_pos = landscape.get_document_positions()[doc_id]
+    break
+
 # Add the preference
 print("\n=== Adding Preference to Move Hybrid Document ===")
-landscape.add_user_preference("ML_tools", [hybrid_doc_id] + ml_docs)
+if ml_cluster_pos and hybrid_doc_id:
+    landscape.add_user_preference("ML_tools", [hybrid_doc_id] + ml_docs, target_position=ml_cluster_pos)
 
 # Retrain with preferences
 print("Retraining with preferences...")

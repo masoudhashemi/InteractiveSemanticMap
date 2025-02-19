@@ -83,8 +83,6 @@ class LLMInterface:
 
         response = self._get_completion(prompt)
 
-        print("Response: ", response)
-
         if "NO_SPLIT" in response.upper():
             return None
 
@@ -95,13 +93,17 @@ class LLMInterface:
 
             for line in response.split("\n"):
                 if line.startswith("Group 1:"):
-                    numbers = [int(n.strip()) for n in line.replace("Group 1:", "").strip().strip("[]").split(",")]
-                    group1_docs = [documents[i - 1] for i in numbers]
+                    numbers_str = line.replace("Group 1:", "").strip().strip("[]").strip()
+                    if numbers_str:
+                        numbers = [int(n.strip()) for n in numbers_str.split(",")]
+                        group1_docs = [documents[i - 1] for i in numbers]
                 elif line.startswith("Group 2:"):
-                    numbers = [int(n.strip()) for n in line.replace("Group 2:", "").strip().strip("[]").split(",")]
-                    group2_docs = [documents[i - 1] for i in numbers]
+                    numbers_str = line.replace("Group 2:", "").strip().strip("[]").strip()
+                    if numbers_str:
+                        numbers = [int(n.strip()) for n in numbers_str.split(",")]
+                        group2_docs = [documents[i - 1] for i in numbers]
 
-            if group1_docs and group2_docs:
+            if group1_docs or group2_docs:
                 return {"cluster1": group1_docs, "cluster2": group2_docs}
         except Exception as e:
             print(f"Error parsing LLM response: {e}")

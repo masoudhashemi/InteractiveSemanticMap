@@ -3,7 +3,7 @@ from semantic_landscape.som import InteractiveSOM
 
 # Initialize the system
 landscape = SemanticLandscape(
-    grid_size=(10, 10), use_hdbscan=True, min_cluster_size=5
+    grid_size=(2, 2), use_hdbscan=True, min_cluster_size=2
 )  # Smaller grid for clearer clusters
 
 # Add documents that naturally form distinct groups
@@ -82,7 +82,7 @@ if splits:
 # Try to move a document and show the impact
 first_doc_id = list(positions.keys())[0]
 original_pos = positions[first_doc_id]
-new_pos = (5, 5)
+new_pos = (1, 1)
 
 print(f"\nMoving document {first_doc_id} from {original_pos} to {new_pos}...")
 print(f"Original document: {landscape.documents[first_doc_id]}")

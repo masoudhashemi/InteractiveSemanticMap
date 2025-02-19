@@ -35,6 +35,21 @@ class SemanticLandscape:
         # Generate document IDs
         doc_ids = [str(len(self.documents) + i) for i in range(len(documents))]
 
+        # Combine new embeddings with existing ones
+        all_embeddings = []
+        all_doc_ids = []
+
+        # Add existing embeddings
+        if self.embeddings:
+            all_embeddings.extend(list(self.embeddings.values()))
+            all_doc_ids.extend(list(self.embeddings.keys()))
+
+        # Add new embeddings
+        all_embeddings.extend(new_embeddings)
+        all_doc_ids.extend(doc_ids)
+
+        all_embeddings = np.array(all_embeddings)
+
         # Initialize or update SOM
         if self.som is None:
             self.som = InteractiveSOM(
@@ -43,38 +58,34 @@ class SemanticLandscape:
                 use_hdbscan=self.use_hdbscan,
                 min_cluster_size=self.min_cluster_size,
             )
-            self.som.som.random_weights_init(new_embeddings)
+            self.som.som.random_weights_init(all_embeddings)
 
-        # Train SOM with document IDs
-        self.som.train(new_embeddings, document_ids=doc_ids)  # Pass the doc_ids here
+        # Train SOM with all document IDs
+        self.som.train(all_embeddings, document_ids=all_doc_ids)
 
-        # Store documents and their embeddings
+        # Store new documents and their embeddings
         for i, (doc, doc_id) in enumerate(zip(documents, doc_ids)):
             self.documents[doc_id] = doc
             self.embeddings[doc_id] = new_embeddings[i]
 
-    def add_user_preference(self, category: str, preferred_docs: List[str]):
+    def add_user_preference(self, category: str, preferred_docs: List[str], target_position: Tuple[int, int]):
         """
         Add user preference for document grouping by training the SOM to respect the preference
+
+        Args:
+            category: Name of the category/group
+            preferred_docs: List of document IDs to group together
+            target_position: Desired position (x,y) on the grid for this category
         """
         self.user_preferences[category] = preferred_docs
 
         # If we have embeddings, update the SOM weights to reflect this preference
         if self.som and all(doc_id in self.embeddings for doc_id in preferred_docs):
-            # Get embeddings for preferred docs
-            pref_embeddings = [self.embeddings[doc_id] for doc_id in preferred_docs]
-
-            # Calculate centroid of preferred documents
-            centroid = np.mean(pref_embeddings, axis=0)
-
-            # Find best matching unit for centroid
-            target_position = self.som.get_document_position(centroid)
-
             # Train SOM to respect the preference
             for _ in range(10):  # Multiple iterations to reinforce the preference
                 for doc_id in preferred_docs:
                     if doc_id in self.embeddings:
-                        # Use force_document_position which now lets SOM determine final position
+                        # Move documents to user-specified position
                         self.som.force_document_position(doc_id, self.embeddings[doc_id], target_position)
 
     def move_document(self, doc_id: str, target_position: Tuple[int, int], preference_weight: float = 0.5):
@@ -108,16 +119,11 @@ class SemanticLandscape:
         # Then apply preferences
         for category, preferred_docs in self.user_preferences.items():
             if preferred_docs:
-                # Calculate centroid of preferred documents
-                pref_embeddings = [self.embeddings[doc_id] for doc_id in preferred_docs if doc_id in self.embeddings]
-                if pref_embeddings:
-                    centroid = np.mean(pref_embeddings, axis=0)
-                    target_position = self.som.get_document_position(centroid)
-
-                    # Move documents to target position
-                    for doc_id in preferred_docs:
-                        if doc_id in self.embeddings:
-                            self.move_document(doc_id, target_position, preference_weight=0.8)
+                # Calculate target position (using first document's current position as target)
+                if preferred_docs[0] in self.embeddings:
+                    target_position = self.som.get_position_by_id(preferred_docs[0])
+                    # Re-add preference with the target position
+                    self.add_user_preference(category, preferred_docs, target_position)
 
     def get_document_positions(self) -> Dict[str, Tuple[int, int]]:
         """Get current positions of all documents on the SOM"""

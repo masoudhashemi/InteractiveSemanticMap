@@ -53,6 +53,10 @@ class InteractiveSOM:
         """
         Force a document to a specific position by adjusting the SOM weights and neighborhood
         """
+        # Ensure target position is within grid bounds
+        if not (0 <= target_position[0] < self.grid_size[0] and 0 <= target_position[1] < self.grid_size[1]):
+            raise ValueError("Target position is out of grid bounds")
+
         # Store the document data
         self.document_data[doc_id] = embedding
 

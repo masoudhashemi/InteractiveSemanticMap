@@ -1,7 +1,7 @@
 from semantic_landscape import SemanticLandscape
 
 # Initialize with a smaller grid
-landscape = SemanticLandscape(grid_size=(10, 10))  # Reduced from 20x20 to 10x10
+landscape = SemanticLandscape(grid_size=(10, 10))
 
 # Add fewer, more distinct documents
 documents = [
