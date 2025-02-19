@@ -4,7 +4,7 @@ from semantic_landscape.som import InteractiveSOM
 # Initialize the system
 landscape = SemanticLandscape(
     grid_size=(2, 2), use_hdbscan=True, min_cluster_size=2
-)  # Smaller grid for clearer clusters
+)
 
 # Add documents that naturally form distinct groups
 documents = [
