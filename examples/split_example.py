@@ -60,14 +60,26 @@ for doc_id in ml_docs:
     ml_cluster_pos = landscape.get_document_positions()[doc_id]
     break
 
-# Add the preference
-print("\n=== Adding Preference to Move Hybrid Document ===")
+# Add preferences with different neighborhood effects
+print("\n=== Testing Different Neighborhood Effects ===")
 if ml_cluster_pos and hybrid_doc_id:
-    landscape.add_user_preference("ML_tools", [hybrid_doc_id] + ml_docs, target_position=ml_cluster_pos)
+    # First try with low neighborhood effect (minimal impact on other documents)
+    print("\nMoving with low neighborhood effect (0.2)...")
+    landscape.add_user_preference(
+        "ML_tools_minimal", [hybrid_doc_id] + ml_docs, target_position=ml_cluster_pos, neighborhood_effect=0.2
+    )
 
-# Retrain with preferences
-print("Retraining with preferences...")
-landscape.retrain_with_preferences()
+    # Show intermediate positions
+    intermediate_positions = landscape.get_document_positions()
+    print("\nPositions after minimal effect move:")
+    for doc_id, pos in intermediate_positions.items():
+        print(f"Document {doc_id}: {pos}")
+
+    # Then try with high neighborhood effect (strong impact on other documents)
+    print("\nMoving with high neighborhood effect (0.8)...")
+    landscape.add_user_preference(
+        "ML_tools_strong", [hybrid_doc_id] + ml_docs, target_position=ml_cluster_pos, neighborhood_effect=0.8
+    )
 
 # Show updated positions and summaries
 print("\n=== Final State After Movement ===")

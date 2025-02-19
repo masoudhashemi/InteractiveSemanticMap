@@ -49,65 +49,80 @@ class InteractiveSOM:
             self.grid_size[0], self.grid_size[1], self.input_dim
         )
 
-    def force_document_position(self, doc_id: str, embedding: np.ndarray, target_position: Tuple[int, int]):
+    def force_document_position(
+        self, doc_id: str, embedding: np.ndarray, target_position: Tuple[int, int], neighborhood_effect: float = 1.0
+    ):
         """
         Force a document to a specific position by adjusting the SOM weights and neighborhood
+
+        Args:
+            doc_id: Identifier of the document to move
+            embedding: Document embedding vector
+            target_position: Desired (x,y) position on the grid
+            neighborhood_effect: Controls how much the movement affects other documents (0-1)
+                               0 = no effect on others, 1 = full effect (default)
         """
         # Ensure target position is within grid bounds
         if not (0 <= target_position[0] < self.grid_size[0] and 0 <= target_position[1] < self.grid_size[1]):
             raise ValueError("Target position is out of grid bounds")
 
+        if not 0 <= neighborhood_effect <= 1:
+            raise ValueError("neighborhood_effect must be between 0 and 1")
+
         # Store the document data
         self.document_data[doc_id] = embedding
 
-        # Define parameters with more aggressive values
-        sigma = 2.0  # Smaller sigma for more focused influence
-        learning_rate = 1.0  # Maximum learning rate
-        threshold = 0.5  # Stricter threshold
+        # Define parameters
+        sigma = 2.0  # Neighborhood radius
+        learning_rate = 0.5  # Learning rate
         max_iterations = 100
 
-        # Get current weights at target position
-        target_weights = self.som._weights[target_position[0]][target_position[1]]
-
-        # Calculate the direction we need to move the weights
-        weight_direction = target_weights - embedding
+        # Calculate the target weights
+        target_weights = embedding
 
         # Precompute the grid indices and distances
         x_indices, y_indices = np.meshgrid(np.arange(self.grid_size[0]), np.arange(self.grid_size[1]), indexing="ij")
         distances = np.sqrt((x_indices - target_position[0]) ** 2 + (y_indices - target_position[1]) ** 2)
 
-        # Calculate the influence of the target position
-        influence = np.exp(-(distances**2) / (2 * sigma**2))
+        # Store original weights to blend between original and fully affected states
+        original_weights = self.som._weights.copy()
 
-        # Set target position to exactly match embedding
-        self.som._weights[target_position[0]][target_position[1]] = embedding
+        for _ in range(max_iterations):
+            # Calculate neighborhood influence
+            influence = np.exp(-(distances**2) / (2 * sigma**2))
+            influence = influence.reshape(self.grid_size[0], self.grid_size[1], 1)
 
-        # Iteratively adjust surrounding weights
-        for iteration in range(max_iterations):
-            # Create a repulsive effect around the target position
+            # Update weights using neighborhood function
             for i in range(self.grid_size[0]):
                 for j in range(self.grid_size[1]):
-                    if (i, j) != target_position:  # Skip the target position
-                        dist = np.sqrt((i - target_position[0]) ** 2 + (j - target_position[1]) ** 2)
-                        influence = np.exp(-(dist**2) / (2 * sigma**2))
+                    # Calculate weight update based on distance from target
+                    weight_delta = target_weights - self.som._weights[i][j]
+                    full_update = self.som._weights[i][j] + learning_rate * influence[i][j] * weight_delta
 
-                        # Move surrounding weights away from embedding
-                        self.som._weights[i][j] += learning_rate * influence * weight_direction
+                    # Blend between original and fully affected weights based on neighborhood_effect
+                    self.som._weights[i][j] = (
+                        original_weights[i][j] * (1 - neighborhood_effect) + full_update * neighborhood_effect
+                    )
 
-            # Check current position
+            # Update positions of all documents
+            for d_id, d_embedding in self.document_data.items():
+                self.document_mappings[d_id] = self.som.winner(d_embedding)
+
+            # Check if target document is in position
             current_position = self.som.winner(embedding)
-            current_distance = np.sqrt(
-                (current_position[0] - target_position[0]) ** 2 + (current_position[1] - target_position[1]) ** 2
-            )
-
-            if current_distance <= threshold:
+            if current_position == target_position:
                 break
 
-            # Increase learning rate if we're stuck
-            if iteration > 0 and iteration % 10 == 0:
-                learning_rate *= 1.2
+            # Gradually reduce learning rate and neighborhood size
+            learning_rate *= 0.95
+            sigma *= 0.95
 
-        self.document_mappings[doc_id] = self.som.winner(embedding)
+        # Use winner to get final position instead of direct assignment
+        final_position = self.som.winner(embedding)
+        self.document_mappings[doc_id] = final_position
+
+        # Return whether we achieved the target position
+        return final_position == target_position
 
     def get_position_by_id(self, doc_id: str) -> Tuple[int, int]:
         """Get position for a document by its ID"""

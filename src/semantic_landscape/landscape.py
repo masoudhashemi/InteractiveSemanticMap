@@ -68,25 +68,34 @@ class SemanticLandscape:
             self.documents[doc_id] = doc
             self.embeddings[doc_id] = new_embeddings[i]
 
-    def add_user_preference(self, category: str, preferred_docs: List[str], target_position: Tuple[int, int]):
-        """
-        Add user preference for document grouping by training the SOM to respect the preference
+    def add_user_preference(
+        self,
+        preference_id: str,
+        document_ids: List[str],
+        target_position: Optional[Tuple[int, int]] = None,
+        neighborhood_effect: float = 1.0,
+    ):
+        """Add a user preference to move documents to a target position.
 
         Args:
-            category: Name of the category/group
-            preferred_docs: List of document IDs to group together
-            target_position: Desired position (x,y) on the grid for this category
+            preference_id: Unique identifier for this preference
+            document_ids: List of document IDs to move
+            target_position: Target (x,y) position on grid. If None, will be automatically determined.
+            neighborhood_effect: Controls how much the movement affects other documents (0-1)
+                               0 = no effect on others, 1 = full effect (default)
         """
-        self.user_preferences[category] = preferred_docs
+        if not document_ids:
+            return
 
-        # If we have embeddings, update the SOM weights to reflect this preference
-        if self.som and all(doc_id in self.embeddings for doc_id in preferred_docs):
-            # Train SOM to respect the preference
-            for _ in range(10):  # Multiple iterations to reinforce the preference
-                for doc_id in preferred_docs:
-                    if doc_id in self.embeddings:
-                        # Move documents to user-specified position
-                        self.som.force_document_position(doc_id, self.embeddings[doc_id], target_position)
+        # Move each document individually to maintain the target position
+        for doc_id in document_ids:
+            if doc_id in self.embeddings:
+                self.som.force_document_position(
+                    doc_id, self.embeddings[doc_id], target_position, neighborhood_effect=neighborhood_effect
+                )
+
+        # Refresh with fewer epochs to stabilize while maintaining positions
+        self.refresh(epochs=5)
 
     def move_document(self, doc_id: str, target_position: Tuple[int, int], preference_weight: float = 0.5):
         """
@@ -105,25 +114,6 @@ class SemanticLandscape:
 
         # Update the SOM weights to try to accommodate the suggested position
         self.som.force_document_position(doc_id, embedding, target_position)
-
-    def retrain_with_preferences(self):
-        """Retrain SOM considering all user preferences"""
-        if not self.som:
-            return
-
-        # First do standard training
-        embeddings = np.array(list(self.embeddings.values()))
-        document_ids = list(self.embeddings.keys())
-        self.som.train(embeddings, document_ids=document_ids)
-
-        # Then apply preferences
-        for category, preferred_docs in self.user_preferences.items():
-            if preferred_docs:
-                # Calculate target position (using first document's current position as target)
-                if preferred_docs[0] in self.embeddings:
-                    target_position = self.som.get_position_by_id(preferred_docs[0])
-                    # Re-add preference with the target position
-                    self.add_user_preference(category, preferred_docs, target_position)
 
     def get_document_positions(self) -> Dict[str, Tuple[int, int]]:
         """Get current positions of all documents on the SOM"""
