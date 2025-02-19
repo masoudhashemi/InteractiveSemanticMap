@@ -97,4 +97,4 @@ The system consists of three main components:
 - Embedding-based representation
 - Centroid-based cluster analysis
 - Incremental updates
-- Position-aware document management 
+- Position-aware document management
