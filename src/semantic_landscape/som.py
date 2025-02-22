@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import hdbscan
 import numpy as np
@@ -50,79 +50,127 @@ class InteractiveSOM:
         )
 
     def force_document_position(
-        self, doc_id: str, embedding: np.ndarray, target_position: Tuple[int, int], neighborhood_effect: float = 1.0
+        self,
+        doc_ids: Union[str, List[str]],
+        embeddings: Union[np.ndarray, List[np.ndarray]],
+        target_positions: Union[Tuple[int, int], List[Tuple[int, int]]],
+        neighborhood_effect: float = 1.0,
     ):
         """
-        Force a document to a specific position by adjusting the SOM weights and neighborhood
+        Force documents to specific positions while maintaining semantic relationships.
+        Similar documents will be influenced to move together.
 
         Args:
-            doc_id: Identifier of the document to move
-            embedding: Document embedding vector
-            target_position: Desired (x,y) position on the grid
-            neighborhood_effect: Controls how much the movement affects other documents (0-1)
-                               0 = no effect on others, 1 = full effect (default)
+            doc_ids: Single document ID or list of document IDs to move
+            embeddings: Single embedding or list of embeddings
+            target_positions: Single target position or list of target positions as (x,y) tuples
+            neighborhood_effect: Controls how much the movement affects similar documents (0-1)
         """
-        # Ensure target position is within grid bounds
-        if not (0 <= target_position[0] < self.grid_size[0] and 0 <= target_position[1] < self.grid_size[1]):
-            raise ValueError("Target position is out of grid bounds")
+        # Convert single inputs to lists
+        if isinstance(doc_ids, str):
+            doc_ids = [doc_ids]
+            embeddings = [embeddings]
+            target_positions = [target_positions]
+
+        # Validate inputs
+        if not (len(doc_ids) == len(embeddings) == len(target_positions)):
+            raise ValueError("Number of documents, embeddings, and target positions must match")
+
+        for target_pos in target_positions:
+            if not (0 <= target_pos[0] < self.grid_size[0] and 0 <= target_pos[1] < self.grid_size[1]):
+                raise ValueError("Target position is out of grid bounds")
 
         if not 0 <= neighborhood_effect <= 1:
             raise ValueError("neighborhood_effect must be between 0 and 1")
 
-        # Store the document data
-        self.document_data[doc_id] = embedding
+        # Store document data
+        for doc_id, embedding in zip(doc_ids, embeddings):
+            self.document_data[doc_id] = embedding
 
-        # Define parameters
-        sigma = 2.0  # Neighborhood radius
-        learning_rate = 0.5  # Learning rate
-        max_iterations = 100
+        # Initialize parameters
+        sigma = 2.0
+        learning_rate = 0.5
+        max_iterations = 10
 
-        # Calculate the target weights
-        target_weights = embedding
-
-        # Precompute the grid indices and distances
-        x_indices, y_indices = np.meshgrid(np.arange(self.grid_size[0]), np.arange(self.grid_size[1]), indexing="ij")
-        distances = np.sqrt((x_indices - target_position[0]) ** 2 + (y_indices - target_position[1]) ** 2)
-
-        # Store original weights to blend between original and fully affected states
-        original_weights = self.som._weights.copy()
+        # Get all document embeddings for similarity calculations
+        all_embeddings = np.array(list(self.document_data.values()))
+        all_doc_ids = list(self.document_data.keys())
 
         for _ in range(max_iterations):
-            # Calculate neighborhood influence
-            influence = np.exp(-(distances**2) / (2 * sigma**2))
-            influence = influence.reshape(self.grid_size[0], self.grid_size[1], 1)
+            # Process each target document
+            for doc_id, embedding, target_pos in zip(doc_ids, embeddings, target_positions):
+                current_pos = self.som.winner(embedding)
 
-            # Update weights using neighborhood function
-            for i in range(self.grid_size[0]):
-                for j in range(self.grid_size[1]):
-                    # Calculate weight update based on distance from target
-                    weight_delta = target_weights - self.som._weights[i][j]
-                    full_update = self.som._weights[i][j] + learning_rate * influence[i][j] * weight_delta
+                # Calculate similarity scores with all other documents
+                similarities = np.dot(all_embeddings, embedding) / (
+                    np.linalg.norm(all_embeddings, axis=1) * np.linalg.norm(embedding)
+                )
 
-                    # Blend between original and fully affected weights based on neighborhood_effect
-                    self.som._weights[i][j] = (
-                        original_weights[i][j] * (1 - neighborhood_effect) + full_update * neighborhood_effect
-                    )
+                # Calculate movement vector
+                movement = np.array(target_pos) - np.array(current_pos)
+                movement_direction = movement / np.linalg.norm(movement) if np.any(movement) else np.zeros(2)
 
-            # Update positions of all documents
-            for d_id, d_embedding in self.document_data.items():
-                self.document_mappings[d_id] = self.som.winner(d_embedding)
+                # Update weights for target document and similar documents
+                for i in range(self.grid_size[0]):
+                    for j in range(self.grid_size[1]):
+                        # Calculate base influence from target position
+                        dist_to_target = np.sqrt((i - target_pos[0]) ** 2 + (j - target_pos[1]) ** 2)
+                        position_influence = np.exp(-dist_to_target / sigma)
 
-            # Check if target document is in position
-            current_position = self.som.winner(embedding)
-            if current_position == target_position:
+                        # Add directional influence
+                        node_direction = np.array([i - current_pos[0], j - current_pos[1]])
+                        if np.any(node_direction):
+                            node_direction = node_direction / np.linalg.norm(node_direction)
+                            direction_alignment = np.dot(movement_direction, node_direction)
+                            position_influence *= max(0, direction_alignment)
+
+                        # Find documents currently mapped to this position
+                        docs_at_pos = [
+                            (idx, sim)
+                            for idx, (did, sim) in enumerate(zip(all_doc_ids, similarities))
+                            if self.som.winner(all_embeddings[idx]) == (i, j)
+                        ]
+
+                        if docs_at_pos:
+                            # Calculate semantic influence based on document similarities
+                            max_similarity = max(sim for _, sim in docs_at_pos)
+                            semantic_influence = max_similarity * neighborhood_effect
+                        else:
+                            semantic_influence = 0
+
+                        # Combine position and semantic influence
+                        total_influence = max(position_influence, semantic_influence)
+
+                        # Calculate weight update
+                        if (i, j) == target_pos:
+                            # Direct update for target position
+                            self.som._weights[i, j] = embedding
+                        else:
+                            # Update based on combined influence
+                            weight_delta = embedding - self.som._weights[i, j]
+                            self.som._weights[i, j] += learning_rate * total_influence * weight_delta
+
+                # Update positions of all documents
+                for d_id, d_embedding in self.document_data.items():
+                    self.document_mappings[d_id] = self.som.winner(d_embedding)
+
+            # Check if target documents reached their positions
+            all_reached = all(
+                self.som.winner(emb) == target_pos for emb, target_pos in zip(embeddings, target_positions)
+            )
+            if all_reached:
                 break
 
-            # Gradually reduce learning rate and neighborhood size
+            # Reduce parameters
             learning_rate *= 0.95
             sigma *= 0.95
 
-        # Use winner to get final position instead of direct assignment
-        final_position = self.som.winner(embedding)
-        self.document_mappings[doc_id] = final_position
+        # Final position enforcement for target documents
+        for doc_id, embedding, target_pos in zip(doc_ids, embeddings, target_positions):
+            self.som._weights[target_pos[0], target_pos[1]] = embedding
+            self.document_mappings[doc_id] = target_pos
 
-        # Return whether we achieved the target position
-        return final_position == target_position
+        return True
 
     def get_position_by_id(self, doc_id: str) -> Tuple[int, int]:
         """Get position for a document by its ID"""

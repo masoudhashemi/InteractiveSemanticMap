@@ -1,7 +1,7 @@
 from semantic_landscape import SemanticLandscape
 
 # Initialize a small landscape for clear visualization
-landscape = SemanticLandscape(grid_size=(2, 2))
+landscape = SemanticLandscape(grid_size=(3, 3))
 
 # Create some simple, related documents
 documents = [
@@ -26,11 +26,11 @@ for doc_id, pos in initial_positions.items():
 
 # Let's try to move the "cat and dog" document (ID: 4)
 # to a new position with different neighborhood effects
-target_position = (1, 0)  # Bottom-right corner
-doc_to_move = "4"  # The hybrid "cat and dog" document
+target_position = (2, 2)
+doc_to_move = "3"
 
 print("\n=== Moving Document with Different Neighborhood Effects ===")
-print(f"Moving: '{documents[4]}'")
+print(f"Moving: '{documents[int(doc_to_move)]}'")
 print(f"Target Position: {target_position}")
 
 # First try with minimal neighborhood effect
